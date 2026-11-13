@@ -222,10 +222,10 @@ $preAvg = [math]::Round(($pre | Measure-Object -Average).Average, 1)
 # (needs the API key). Without a key, the calendar already in data.js is kept.
 # A failure here only drops the calendar; it never blocks the data refresh.
 $calendar = $null
+$today = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd')
 if ($FredKey) {
   Write-Host 'FRED release calendar'
   try {
-    $today = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd')
     $byRelease = [ordered]@{}
     foreach ($id in $fred.Keys) {
       $rels = ((Get-Text "https://api.stlouisfed.org/fred/series/release?series_id=$id&file_type=json&api_key=$FredKey") | ConvertFrom-Json).releases
@@ -259,6 +259,49 @@ if ($null -eq $calendar -and (Test-Path $OutFile)) {
     if ($old.calendar) { $calendar = $old.calendar; Write-Host 'Release calendar: kept from previous data.js' }
   }
 }
+
+# FOMC decision dates come from the Fed's meeting calendar. FRED files its
+# "FOMC Press Release" under every day (the target-rate series is daily), so
+# that entry is replaced. The decision is announced on a meeting's last day.
+Write-Host 'FOMC meeting calendar'
+$oldFomc = $null
+$rest = New-Object System.Collections.Generic.List[object]
+foreach ($r in @($calendar)) {
+  if ($null -eq $r) { continue }
+  if ([string]$r.name -match 'FOMC') { if ($r.url) { $oldFomc = $r } } else { $rest.Add($r) }
+}
+try {
+  $html = Get-Text 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm'
+  $fomc = New-Object System.Collections.Generic.List[string]
+  $found = 0
+  # Splitting on a capture group gives: preamble, year, body, year, body, ...
+  $parts = [regex]::Split($html, '(\d{4}) FOMC Meetings</a>')
+  for ($i = 1; $i + 1 -lt $parts.Count; $i += 2) {
+    $year = $parts[$i]
+    # Month cell, then that entry's date cell ("27-28" or "8-9*"); entries such
+    # as "22 (notation vote)" don't match and are skipped.
+    $rx = 'fomc-meeting__month[^>]*>\s*<strong>([^<]+)</strong>(?:(?!fomc-meeting__month).)*?fomc-meeting__date[^>]*>\s*(\d+)-(\d+)\*?\s*<'
+    foreach ($m in [regex]::Matches($parts[$i + 1], $rx, 'Singleline')) {
+      $mon = ($m.Groups[1].Value -split '/')[-1].Trim()   # "April/May" -> May
+      $dt = [datetime]::MinValue
+      if ([datetime]::TryParseExact("$mon $($m.Groups[3].Value) $year", [string[]]@('MMMM d yyyy', 'MMM d yyyy'), $inv, [Globalization.DateTimeStyles]::None, [ref]$dt)) {
+        $found++
+        $s = $dt.ToString('yyyy-MM-dd')
+        if ($s -ge $today -and -not $fomc.Contains($s)) { $fomc.Add($s) }
+      }
+    }
+  }
+  if ($found -lt 8) { throw "FOMC calendar page layout changed ($found meetings parsed)" }
+  $fomc.Sort()
+  $rest.Add([ordered]@{ id = 0; name = 'FOMC meeting'; url = 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm'
+      series = [string[]]@('DFEDTARU', 'DFEDTARL'); dates = [string[]]$fomc.ToArray() })
+  Write-Host "FOMC decisions ahead: $($fomc -join ', ')"
+} catch {
+  if ($oldFomc) { $rest.Add($oldFomc) }
+  $msg = $_.Exception.Message
+  if ($env:GITHUB_ACTIONS) { Write-Host "::warning title=fomc-calendar::$msg" } else { Write-Warning "FOMC calendar skipped: $msg" }
+}
+$calendar = $null; if ($rest.Count) { $calendar = $rest }   # no if-expression: it would unroll a 1-item list
 
 # ---------------------------------------------------------------- write
 $payload = [ordered]@{

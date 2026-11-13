@@ -254,7 +254,7 @@
       const fomc = /FOMC/i.test(r.name);
       return `<tr${i >= SHOW ? ' class="cal-more" hidden' : ''}${fomc ? ' data-fomc' : ''}>
         <td class="cal-date"><span class="cal-day">${fmtDay(r.up[0])}</span><span class="cal-in">${fmtIn(r.up[0])}</span></td>
-        <td><a href="https://fred.stlouisfed.org/release?rid=${+r.id}">${esc(r.name)}</a>${fomc ? ' <span class="cal-tag">Rate decision</span>' : ''}</td>
+        <td><a href="${r.url ? esc(r.url) : `https://fred.stlouisfed.org/release?rid=${+r.id}`}">${esc(r.name)}</a>${fomc ? ' <span class="cal-tag">Rate decision</span>' : ''}</td>
         <td class="cal-panels">${panels.map((p) => `<a href="#${p.anchor}">${p.title}</a>`).join(', ')}</td>
         <td class="cal-then">${r.up[1] ? fmtDay(r.up[1]) : ''}</td></tr>`;
     };
