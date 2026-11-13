@@ -28,6 +28,9 @@ jobs:
       - name: Fetch latest data
         shell: pwsh
         continue-on-error: true
+        timeout-minutes: 15
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: ./scripts/fetch-data.ps1
 
       - name: Assemble site

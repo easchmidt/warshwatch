@@ -29,7 +29,11 @@ powershell -ExecutionPolicy Bypass -File scripts/serve.ps1        # http://local
 1. Create a new empty repository on GitHub.
 2. Push this folder to its `main` branch.
 3. In the repository, go to **Settings → Pages → Build and deployment → Source** and choose **GitHub Actions**.
-4. The workflow runs on the push. The site appears at `https://<user>.github.io/<repo>/`.
+4. Get a free FRED API key at https://fred.stlouisfed.org/docs/api/api_key.html. Add it under
+   **Settings → Secrets and variables → Actions → New repository secret**, named `FRED_API_KEY`.
+   FRED's public CSV endpoint stalls requests from GitHub's servers, so the daily refresh needs the key.
+   Without it, the workflow redeploys the committed `data/data.js` unchanged.
+5. The workflow runs on the push. The site appears at `https://<user>.github.io/<repo>/`.
 
 GitHub turns off scheduled workflows after 60 days with no repository activity. If the data
 stops updating, re-enable the workflow from the Actions tab.

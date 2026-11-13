@@ -24,11 +24,12 @@ $inv = [Globalization.CultureInfo]::InvariantCulture
 # (In Windows PowerShell 'curl' is an alias for Invoke-WebRequest, so call curl.exe there.)
 $CurlExe = if ($env:OS -eq 'Windows_NT') { 'curl.exe' } else { 'curl' }
 function Save-Url([string]$Url, [string]$Path) {
-  $code = & $CurlExe -sSL --http1.1 --retry 3 --retry-delay 5 --retry-all-errors --max-time 300 -A $UA -o $Path -w '%{http_code}' $Url
+  $code = & $CurlExe -sSL --http1.1 --connect-timeout 20 --max-time 120 --retry 2 --retry-delay 5 --retry-all-errors -A $UA -o $Path -w '%{http_code}' $Url
   if ($LASTEXITCODE -ne 0 -or $code -ne '200') {
     $snippet = ''
     if (Test-Path $Path) { $snippet = ([IO.File]::ReadAllText($Path) -replace '\s+', ' '); if ($snippet.Length -gt 200) { $snippet = $snippet.Substring(0, 200) } }
-    throw "Download failed: HTTP $code (curl exit $LASTEXITCODE) for $Url :: $snippet"
+    $safeUrl = $Url -replace 'api_key=[^&]+', 'api_key=***'   # never print the FRED key
+    throw "Download failed: HTTP $code (curl exit $LASTEXITCODE) for $safeUrl :: $snippet"
   }
 }
 # On GitHub Actions, surface failures as annotations (readable without signing in).
@@ -78,10 +79,26 @@ function Compress-Weekly($obs) {
   return , $out
 }
 
+# With FRED_API_KEY set (a free key; stored as a GitHub Actions secret), use the
+# official API, which is meant for automated access. Without one, fall back to
+# the public graph CSV endpoint, which works from home connections but stalls
+# requests from cloud/CI IP ranges.
+$FredKey = $env:FRED_API_KEY
+function Get-FredObs([string]$id) {
+  if ($FredKey) {
+    $j = (Get-Text "https://api.stlouisfed.org/fred/series/observations?series_id=$id&observation_start=$Start&file_type=json&api_key=$FredKey") | ConvertFrom-Json
+    $out = New-Object System.Collections.Generic.List[object]
+    foreach ($o in $j.observations) { if ($o.value -ne '.' -and $o.value -ne '') { $out.Add(@([string]$o.date, [double]::Parse($o.value, $inv))) } }
+    return , $out
+  }
+  return , (ConvertFrom-FredCsv (Get-Text "https://fred.stlouisfed.org/graph/fredgraph.csv?id=$id&cosd=$Start"))
+}
+
 $series = [ordered]@{}
+Write-Host ('FRED source: ' + $(if ($FredKey) { 'API' } else { 'graph CSV' }))
 foreach ($id in $fred.Keys) {
   Write-Host "FRED $id"
-  $obs = ConvertFrom-FredCsv (Get-Text "https://fred.stlouisfed.org/graph/fredgraph.csv?id=$id&cosd=$Start")
+  $obs = Get-FredObs $id
   if ($fred[$id] -eq 'D') { $obs = Compress-Weekly $obs }
   # Rebuild as plain arrays without the pipeline: PowerShell 5.1 wraps piped
   # arrays in PSObjects, which ConvertTo-Json renders as {value,Count}.
