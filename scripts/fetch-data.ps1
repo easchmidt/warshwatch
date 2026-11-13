@@ -1,8 +1,9 @@
 <#
   Builds data/data.js for the Warsh dashboard.
 
-  Sources (all public, no API keys):
-    - FRED graph CSV endpoint (St. Louis Fed)
+  Sources (all public):
+    - FRED (St. Louis Fed): the official API when FRED_API_KEY is set, which
+      also supplies the release calendar; otherwise the graph CSV endpoint
     - Cleveland Fed median PCE history CSV
     - BEA NIPA underlying detail workbook (Table 2.4.4U, monthly) for the
       "breadth" metric: share of PCE components with inflation above 3%.
@@ -11,10 +12,12 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$OutFile = (Join-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'data') 'data.js'),
+  [string]$OutFile,               # default: data/data.js next to scripts/
   [string]$Start = '2014-01-01'   # keep a year before the earliest display date for % changes
 )
 $ErrorActionPreference = 'Stop'
+# Set here, not as a param default: Windows PowerShell 5.1 leaves $PSScriptRoot empty there.
+if (-not $OutFile) { $OutFile = Join-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'data') 'data.js' }
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $UA = 'Mozilla/5.0 (compatible; warsh-dashboard/1.0)'
@@ -214,10 +217,54 @@ $series['BREADTH_12M'] = $b12
 $series['BREADTH_6M'] = $b6
 $preAvg = [math]::Round(($pre | Measure-Object -Average).Average, 1)
 
+# ---------------------------------------------------------------- release calendar
+# Upcoming publication dates for each source, from FRED's release calendar
+# (needs the API key). Without a key, the calendar already in data.js is kept.
+# A failure here only drops the calendar; it never blocks the data refresh.
+$calendar = $null
+if ($FredKey) {
+  Write-Host 'FRED release calendar'
+  try {
+    $today = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd')
+    $byRelease = [ordered]@{}
+    foreach ($id in $fred.Keys) {
+      $rels = ((Get-Text "https://api.stlouisfed.org/fred/series/release?series_id=$id&file_type=json&api_key=$FredKey") | ConvertFrom-Json).releases
+      if (-not $rels) { continue }
+      $rel = @($rels)[0]; $k = [string]$rel.id
+      if (-not $byRelease.Contains($k)) {
+        $byRelease[$k] = [ordered]@{ id = [int]$rel.id; name = [string]$rel.name; series = New-Object System.Collections.Generic.List[string] }
+      }
+      $byRelease[$k].series.Add($id)
+      # Cleveland median PCE and the BEA breadth measure come out with the PCE report.
+      if ($id -eq 'PCEPI') { foreach ($x in 'MEDPCE_CLE', 'BREADTH_12M', 'BREADTH_6M') { $byRelease[$k].series.Add($x) } }
+    }
+    $calendar = New-Object System.Collections.Generic.List[object]
+    foreach ($r in $byRelease.Values) {
+      $j = (Get-Text "https://api.stlouisfed.org/fred/release/dates?release_id=$($r.id)&realtime_start=$today&realtime_end=9999-12-31&include_release_dates_with_no_data=true&sort_order=asc&limit=10&file_type=json&api_key=$FredKey") | ConvertFrom-Json
+      $dates = New-Object System.Collections.Generic.List[string]
+      foreach ($d in $j.release_dates) { if ([string]$d.date -ge $today) { $dates.Add([string]$d.date) } }
+      $calendar.Add([ordered]@{ id = $r.id; name = $r.name; series = [string[]]$r.series.ToArray(); dates = [string[]]$dates.ToArray() })
+    }
+    Write-Host "Releases: $($calendar.Count)"
+  } catch {
+    $calendar = $null
+    $msg = $_.Exception.Message
+    if ($env:GITHUB_ACTIONS) { Write-Host "::warning title=release-calendar::$msg" } else { Write-Warning "Release calendar skipped: $msg" }
+  }
+}
+if ($null -eq $calendar -and (Test-Path $OutFile)) {
+  $prev = [IO.File]::ReadAllText((Resolve-Path $OutFile).Path)
+  if ($prev -match 'window\.WARSH_DATA = (\{.*\});') {
+    $old = $Matches[1] | ConvertFrom-Json
+    if ($old.calendar) { $calendar = $old.calendar; Write-Host 'Release calendar: kept from previous data.js' }
+  }
+}
+
 # ---------------------------------------------------------------- write
 $payload = [ordered]@{
   generated = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
   breadth   = [ordered]@{ components = $leaves.Count; preAvg12m = $preAvg }
+  calendar  = $calendar
   series    = $series
 }
 $json = $payload | ConvertTo-Json -Depth 6 -Compress

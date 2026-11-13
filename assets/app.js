@@ -207,6 +207,75 @@
     el.innerHTML = tiles.map((t) => `<div class="tile"><p class="tile-label">${t.label}</p><p class="tile-value">${t.value}</p><p class="tile-sub">${t.sub}</p></div>`).join('');
   }
 
+  // ------------------------------------------------------------------ release calendar
+  // DATA.calendar: [{ id, name, series: [ids], dates: ['yyyy-mm-dd', ...] }] from FRED.
+  // Dates already past (the data file can be a day or more old) are dropped here.
+  const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const dayDiff = (a, b) => Math.round((toTime(b) - toTime(a)) / 864e5);
+  const fmtDay = (d) => `${WEEKDAYS[new Date(toTime(d)).getUTCDay()]}, ${MONTHS[+d.slice(5, 7) - 1]} ${+d.slice(8, 10)}`;
+  function fmtIn(d) {
+    const k = dayDiff(todayStr, d);
+    return k === 0 ? 'Today' : k === 1 ? 'Tomorrow' : `In ${k} days`;
+  }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const RELEASES = (DATA.calendar || []).map((r) => {
+    const up = (r.dates || []).filter((d) => d >= todayStr);
+    // Published every business day (Treasury yields, spreads, VIX, the dollar...).
+    const daily = up.length >= 5 && dayDiff(up[0], up[4]) <= 8;
+    return { ...r, up, daily };
+  }).filter((r) => r.up.length);
+  // Series ids a panel reads, taken from its getters, e.g. pct('PCEPI', 12) -> PCEPI.
+  const panelIds = (panel) => [...new Set(panel.series.flatMap((s) => (s.get.toString().match(/'[A-Z0-9_]+'/g) || []).map((q) => q.slice(1, -1))))];
+  const releasesFor = (panel) => RELEASES.filter((r) => r.series.some((id) => panel.ids.includes(id)));
+  function nextUpdate(panel) {
+    const rs = releasesFor(panel);
+    if (!rs.length) return '';
+    const scheduled = rs.filter((r) => !r.daily).sort((a, b) => (a.up[0] < b.up[0] ? -1 : 1));
+    if (rs.some((r) => r.daily)) {
+      // Daily lines dominate; still flag the next rate decision on the policy-rate chart.
+      const fomc = scheduled.find((r) => /FOMC/i.test(r.name));
+      return 'updates daily' + (fomc ? ` · FOMC ${fmtDay(fomc.up[0])}` : '');
+    }
+    if (!scheduled.length) return '';
+    return `next data ${fmtDay(scheduled[0].up[0])}`;
+  }
+
+  function renderCalendar() {
+    const host = document.getElementById('calendar');
+    if (!RELEASES.length) { host.hidden = true; return; }
+    const allPanels = SECTIONS.flatMap((s) => s.panels);
+    const rows = RELEASES.filter((r) => !r.daily).sort((a, b) => (a.up[0] < b.up[0] ? -1 : a.up[0] > b.up[0] ? 1 : a.name.localeCompare(b.name)));
+    const daily = RELEASES.filter((r) => r.daily);
+    const SHOW = 6;
+    const rowHtml = (r, i) => {
+      const panels = allPanels.filter((p) => r.series.some((id) => p.ids.includes(id)));
+      const fomc = /FOMC/i.test(r.name);
+      return `<tr${i >= SHOW ? ' class="cal-more" hidden' : ''}${fomc ? ' data-fomc' : ''}>
+        <td class="cal-date"><span class="cal-day">${fmtDay(r.up[0])}</span><span class="cal-in">${fmtIn(r.up[0])}</span></td>
+        <td><a href="https://fred.stlouisfed.org/release?rid=${+r.id}">${esc(r.name)}</a>${fomc ? ' <span class="cal-tag">Rate decision</span>' : ''}</td>
+        <td class="cal-panels">${panels.map((p) => `<a href="#${p.anchor}">${p.title}</a>`).join(', ')}</td>
+        <td class="cal-then">${r.up[1] ? fmtDay(r.up[1]) : ''}</td></tr>`;
+    };
+    host.innerHTML = `
+      <h2>Upcoming data releases</h2>
+      <p class="section-note">When each source publishes next. Dates come from the FRED release calendar; the dashboard picks up new numbers in its next daily refresh.</p>
+      <div class="cal-wrap"><table class="cal">
+        <thead><tr><th>Next release</th><th>Release</th><th>Updates</th><th>After that</th></tr></thead>
+        <tbody>${rows.map(rowHtml).join('')}</tbody>
+      </table></div>
+      ${rows.length > SHOW ? `<button type="button" class="ghost cal-toggle" aria-expanded="false">Show all ${rows.length} releases</button>` : ''}
+      ${daily.length ? `<p class="cal-daily">Every business day: ${daily.map((r) => esc(r.name)).join(' · ')}</p>` : ''}`;
+    const btn = host.querySelector('.cal-toggle');
+    if (btn) btn.addEventListener('click', () => {
+      const open = btn.getAttribute('aria-expanded') !== 'true';
+      host.querySelectorAll('.cal-more').forEach((tr) => { tr.hidden = !open; });
+      btn.setAttribute('aria-expanded', String(open));
+      btn.textContent = open ? 'Show fewer' : `Show all ${rows.length} releases`;
+    });
+  }
+
   // ------------------------------------------------------------------ chart
   const tooltip = document.getElementById('tooltip');
   const SERIES_VARS = ['--series-1', '--series-2', '--series-3'];
@@ -242,9 +311,11 @@
     const all = panel.series.map((s, i) => ({ ...s, color: SERIES_VARS[i], data: s.get() }));
     const unit = panel.unit, digits = panel.digits == null ? 1 : panel.digits;
     const head = all[0].data.length ? last(all[0].data) : null;
+    const next = nextUpdate(panel);
+    card.id = panel.anchor;
     card.innerHTML = `
       <div class="card-head"><h3>${panel.title}</h3><span class="card-latest">${head ? fmtVal(head.v, unit, digits) : '–'}</span></div>
-      <p class="card-sub">${panel.sub}${head ? ` · latest ${fmtDate(head.d, all[0].freq || panel.freq)}` : ''}</p>
+      <p class="card-sub">${panel.sub}${head ? ` · latest ${fmtDate(head.d, all[0].freq || panel.freq)}` : ''}${next ? ` · <span class="card-next">${next}</span>` : ''}</p>
       ${panel.speech ? `<p class="speech">${panel.speech}</p>` : ''}
       ${all.length > 1 ? `<ul class="legend">${all.map((s) => `<li><span class="swatch" style="background:var(${s.color})"></span>${s.label}</li>`).join('')}</ul>` : ''}
       <div class="chart" tabindex="0" role="img" aria-label="${panel.title} chart. Use left and right arrow keys to read values."></div>
@@ -418,6 +489,11 @@
   // ------------------------------------------------------------------ boot
   function render() {
     const host = document.getElementById('sections');
+    SECTIONS.flatMap((s) => s.panels).forEach((p, i) => {
+      p.ids = panelIds(p);
+      p.anchor = 'panel-' + p.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    });
+    renderCalendar();
     for (const sec of SECTIONS) {
       const s = document.createElement('section');
       s.className = 'section';

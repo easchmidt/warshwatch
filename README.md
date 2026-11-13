@@ -4,8 +4,8 @@ An unofficial dashboard of the economic indicators Fed Chair Kevin Warsh named i
 [Aug 28, 2026 Jackson Hole speech](https://www.federalreserve.gov/newsevents/speech/warsh20260828a.htm)
 and his April 2026 confirmation hearing. [METRICS.md](METRICS.md) lists each metric and its data source.
 
-It is a static site: `index.html`, `assets/` and `data/data.js`. It has no build step, no
-dependencies and no API keys.
+It is a static site: `index.html`, `assets/` and `data/data.js`. It has no build step and no
+dependencies. A free FRED API key (see below) enables the daily refresh on GitHub and the release calendar.
 
 ## How it works
 
@@ -13,6 +13,7 @@ dependencies and no API keys.
   - About 30 FRED series
   - Cleveland Fed median PCE
   - BEA's detailed PCE price table, used to compute the "breadth" metric: the share of PCE components with inflation above 3%
+  - FRED's release calendar, for the "Upcoming data releases" table and each chart's next-update date (needs the API key; a local run without one keeps the calendar already in `data.js`)
 - `.github/workflows/deploy.yml` runs that script every day at 14:15 UTC, on every push to `main`
   and on demand. It then publishes the site to GitHub Pages. If a download fails, the run
   fails and the previous version of the site stays live.
