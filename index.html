@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Warsh Watch: The Fed Chair's Dashboard, Tracked</title>
+  <meta name="description" content="An unofficial dashboard tracking the economic indicators Fed Chair Kevin Warsh highlighted in his August 2026 Jackson Hole speech.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 12 L6 7 L9 9 L14 3' fill='none' stroke='%232a78d6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <div class="page">
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">Unofficial tracker · not affiliated with the Federal Reserve</p>
+        <h1>Warsh Watch</h1>
+        <p class="lede">The indicators Fed Chair Kevin Warsh said he watches, from his
+          <a href="https://www.federalreserve.gov/newsevents/speech/warsh20260828a.htm">Jackson Hole speech</a>
+          (Aug 28, 2026) and his April 2026 confirmation hearing, updated nightly from public data.</p>
+      </div>
+      <div class="masthead-meta">
+        <button type="button" id="theme-toggle" class="ghost" aria-label="Toggle dark mode">Dark mode</button>
+        <p class="updated" id="updated"></p>
+      </div>
+    </header>
+
+    <section class="tiles" id="tiles" aria-label="Key readings"></section>
+
+    <div class="filter-row" role="group" aria-label="Time range">
+      <span class="filter-label">Range</span>
+      <button type="button" class="seg" data-range="2">2Y</button>
+      <button type="button" class="seg" data-range="5" aria-pressed="true">5Y</button>
+      <button type="button" class="seg" data-range="10">10Y</button>
+    </div>
+
+    <main id="sections"></main>
+
+    <footer class="about" id="about">
+      <h2>About this dashboard</h2>
+      <p>At Jackson Hole, Warsh set out seven principles. The first was that policy should rest on data that are
+        relevant, contemporaneous, accurate and actionable, and that trends matter most. This page collects the
+        measures he cited and shows how they have moved since.</p>
+      <h3>Method notes</h3>
+      <ul>
+        <li><strong>Breadth.</strong> The share of individual PCE price components whose inflation rate is above 3%,
+          over 12 months and over 6 months (annualized), with each component counted equally. Warsh cited 199 components
+          from Federal Reserve staff work. This page rebuilds the measure from the most detailed lines of BEA's
+          NIPA Table 2.4.4U (<span id="n-components">about 220</span> components), so levels differ slightly from the
+          speech: 51% against 54% for July 2026, using today's revised data.</li>
+        <li><strong>"At Jackson Hole" markers.</strong> These are the values Warsh quoted in the speech, which used data available in August 2026.
+          Later data revisions can change the historical readings shown here.</li>
+        <li><strong>Substitutes.</strong> National-accounts corporate profits stand in for S&amp;P 500 earnings, and
+          Treasury breakevens stand in for inflation swaps, because those series are not freely licensed.</li>
+        <li>Corporate bond spread history on FRED is limited to roughly the last three years.</li>
+        <li>October 2025 CPI was never published because of the government shutdown. Where a percent change needs
+          a missing month as its base, that month is estimated as the geometric mean of the months on either side.</li>
+      </ul>
+      <h3>Sources</h3>
+      <p>Federal Reserve Bank of St. Louis (FRED), U.S. Bureau of Economic Analysis, U.S. Bureau of Labor Statistics,
+        Federal Reserve Board, Federal Reserve Banks of Dallas, Cleveland and Atlanta, University of Michigan,
+        International Monetary Fund, ICE BofA (via FRED), Cboe (via FRED). Not investment advice.</p>
+    </footer>
+  </div>
+
+  <div class="tooltip" id="tooltip" role="status" aria-live="polite" hidden></div>
+
+  <script src="data/data.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
