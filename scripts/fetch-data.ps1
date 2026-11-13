@@ -24,8 +24,17 @@ $inv = [Globalization.CultureInfo]::InvariantCulture
 # (In Windows PowerShell 'curl' is an alias for Invoke-WebRequest, so call curl.exe there.)
 $CurlExe = if ($env:OS -eq 'Windows_NT') { 'curl.exe' } else { 'curl' }
 function Save-Url([string]$Url, [string]$Path) {
-  & $CurlExe -sSfL --retry 3 --retry-delay 5 --max-time 300 -A $UA -o $Path $Url
-  if ($LASTEXITCODE -ne 0) { throw "Failed to download $Url (curl exit $LASTEXITCODE)" }
+  $code = & $CurlExe -sSL --retry 3 --retry-delay 5 --retry-all-errors --max-time 300 -A $UA -o $Path -w '%{http_code}' $Url
+  if ($LASTEXITCODE -ne 0 -or $code -ne '200') {
+    $snippet = ''
+    if (Test-Path $Path) { $snippet = ([IO.File]::ReadAllText($Path) -replace '\s+', ' '); if ($snippet.Length -gt 200) { $snippet = $snippet.Substring(0, 200) } }
+    throw "Download failed: HTTP $code (curl exit $LASTEXITCODE) for $Url :: $snippet"
+  }
+}
+# On GitHub Actions, surface failures as annotations (readable without signing in).
+trap {
+  if ($env:GITHUB_ACTIONS) { Write-Host ("::error title=fetch-data::" + (($_ | Out-String) -replace '\r?\n', ' ')) }
+  break
 }
 function Get-Text([string]$Url) {
   $f = [IO.Path]::GetTempFileName()

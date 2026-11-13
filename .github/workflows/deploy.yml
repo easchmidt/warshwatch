@@ -22,8 +22,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # If the refresh fails, the committed data/data.js is deployed instead (the
+      # script only writes the file after every download succeeds). Failures show
+      # up as annotations on the run.
       - name: Fetch latest data
         shell: pwsh
+        continue-on-error: true
         run: ./scripts/fetch-data.ps1
 
       - name: Assemble site
