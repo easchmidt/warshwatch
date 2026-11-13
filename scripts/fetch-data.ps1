@@ -243,7 +243,7 @@ if ($FredKey) {
       $j = (Get-Text "https://api.stlouisfed.org/fred/release/dates?release_id=$($r.id)&realtime_start=$today&realtime_end=9999-12-31&include_release_dates_with_no_data=true&sort_order=asc&limit=10&file_type=json&api_key=$FredKey") | ConvertFrom-Json
       $dates = New-Object System.Collections.Generic.List[string]
       foreach ($d in $j.release_dates) { if ([string]$d.date -ge $today) { $dates.Add([string]$d.date) } }
-      $calendar.Add([ordered]@{ id = $r.id; name = $r.name; series = [string[]]$r.series.ToArray(); dates = [string[]]$dates.ToArray() })
+      $calendar.Add([pscustomobject][ordered]@{ id = $r.id; name = $r.name; series = [string[]]$r.series.ToArray(); dates = [string[]]$dates.ToArray() })
     }
     Write-Host "Releases: $($calendar.Count)"
   } catch {
@@ -266,10 +266,11 @@ if ($null -eq $calendar -and (Test-Path $OutFile)) {
 Write-Host 'FOMC meeting calendar'
 $oldFomc = $null
 $rest = New-Object System.Collections.Generic.List[object]
-foreach ($r in @($calendar)) {
+# Plain foreach, not @($calendar): PowerShell 7 throws "Argument types do not match" on @() of this list.
+if ($null -ne $calendar) { foreach ($r in $calendar) {
   if ($null -eq $r) { continue }
   if ([string]$r.name -match 'FOMC') { if ($r.url) { $oldFomc = $r } } else { $rest.Add($r) }
-}
+} }
 try {
   $html = Get-Text 'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm'
   $fomc = New-Object System.Collections.Generic.List[string]
