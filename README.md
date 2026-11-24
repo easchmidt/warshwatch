@@ -1,4 +1,4 @@
-# Warsh Watch
+# Fed Watch
 
 An unofficial dashboard of the economic indicators Fed Chair Kevin Warsh named in his
 [Aug 28, 2026 Jackson Hole speech](https://www.federalreserve.gov/newsevents/speech/warsh20260828a.htm)

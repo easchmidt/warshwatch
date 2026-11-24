@@ -1,4 +1,4 @@
-/* Warsh Watch - dependency-free dashboard renderer. Data: window.WARSH_DATA (data/data.js). */
+/* Fed Watch - dependency-free dashboard renderer. Data: window.WARSH_DATA (data/data.js). */
 (function () {
   'use strict';
   const DATA = window.WARSH_DATA;
