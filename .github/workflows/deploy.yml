@@ -1,13 +1,8 @@
 name: Refresh data and deploy
 
 on:
-  # The main trigger is an outside scheduler (cron-job.org) that starts this
-  # workflow through the GitHub API every 15 minutes on weekdays, 8:00 AM-6:45 PM
-  # ET; see README. GitHub's own scheduler can start runs hours late, so it is
-  # only a backup here.
   schedule:
-    - cron: '50 12-22 * * 1-5'   # hourly on weekdays, 12:50-22:50 UTC
-    - cron: '15 14 * * 0,6'      # once a day on weekends, so date labels stay current
+    - cron: '15 14 * * *'   # daily, after the 8:30 ET data releases
   push:
     branches: [main]
   workflow_dispatch:
@@ -62,14 +57,13 @@ jobs:
           FINVIZ_API_TOKEN: ${{ secrets.FINVIZ_API_TOKEN }}
         run: ./scripts/fetch-data.ps1
 
-      # Scheduled and API-triggered runs deploy only when the data changed
-      # (ignoring the "generated" timestamp). Pushes, and manual runs with
-      # "force" ticked, always deploy.
+      # The scheduled run deploys only when the data changed (ignoring the
+      # "generated" timestamp). Pushes and manual runs always deploy.
       - name: Check for new data
         id: diff
         run: |
           strip() { sed -E 's/"generated":"[^"]*",?//' "$1"; }
-          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.force }}" = "true" ]; then
+          if [ "${{ github.event_name }}" != "schedule" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           elif cmp -s <(strip live-data.js) <(strip data/data.js); then
             echo "changed=false" >> "$GITHUB_OUTPUT"

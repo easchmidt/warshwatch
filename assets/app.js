@@ -279,7 +279,7 @@
     };
     host.innerHTML = `
       <h2>Upcoming data releases</h2>
-      <p class="section-note">When each source publishes next. Dates come from the FRED release calendar; on weekdays the dashboard picks up new numbers within about 15 minutes of a release.</p>
+      <p class="section-note">When each source publishes next. Dates come from the FRED release calendar; the dashboard picks up new numbers in its next daily refresh (9:15 AM ET in winter, 10:15 AM in summer).</p>
       <div class="cal-wrap"><table class="cal">
         <thead><tr><th>Next release</th><th>Release</th><th>Updates</th><th>After that</th></tr></thead>
         <tbody>${rows.map(rowHtml).join('')}</tbody>

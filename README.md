@@ -15,14 +15,11 @@ dependencies. A free FRED API key (see below) enables the scheduled refresh on G
   - BEA's detailed PCE price table, used to compute the "breadth" metric: the share of PCE components with inflation above 3%
   - FRED's release calendar, for the "Upcoming data releases" table and each chart's next-update date (needs the API key; a local run without one keeps the calendar already in `data.js`)
   - The Finviz Elite economic calendar export, for the "Recent high-impact readings" table (actual, expected and prior values). Needs a Finviz Elite API token; without one the readings already in `data.js` are kept, and the table stays hidden if there are none
-- `.github/workflows/deploy.yml` runs that script and publishes the site to GitHub Pages. It runs:
-  - every 15 minutes on weekdays, 8:00 AM-6:45 PM ET, started by an outside scheduler (see
-    [Refresh trigger](#refresh-trigger)), because GitHub's own scheduler can start runs hours late
-  - hourly on weekdays and once a day on weekends from GitHub's scheduler, as a backup
-  - on every push to `main`, and on demand from the Actions tab
-
-  Each run starts from the data the live site is serving. Timed runs publish only when the data
-  changed. If a download fails, the live data stays as it is.
+- `.github/workflows/deploy.yml` runs that script every day at 14:15 UTC (9:15 AM ET in winter,
+  10:15 AM in summer; GitHub can start scheduled runs late), on every push to `main` and on
+  demand. It then publishes the site to GitHub Pages. Each run starts from the data the live
+  site is serving, so if a download fails, the live data stays as it is. The daily run publishes
+  only when the data changed.
 
 ## Run locally (Windows)
 
@@ -44,30 +41,5 @@ powershell -ExecutionPolicy Bypass -File scripts/serve.ps1        # http://local
    https://elite.finviz.com/apis/calendar/economic) as a second secret named `FINVIZ_API_TOKEN`.
 6. The workflow runs on the push. The site appears at `https://<user>.github.io/<repo>/`.
 
-GitHub turns off scheduled workflows after 60 days with no repository activity. That only
-affects the backup schedule; the outside trigger below keeps working.
-
-## Refresh trigger
-
-[cron-job.org](https://cron-job.org) (free) starts the workflow through GitHub's API, so new
-data reaches the site within about 15 minutes of a release.
-
-1. **Create a GitHub token.** GitHub → **Settings → Developer settings → Personal access tokens →
-   Fine-grained tokens → Generate new token**.
-   - Repository access: **Only select repositories** → this repository.
-   - Permissions → Repository permissions → **Actions: Read and write**. Nothing else.
-   - Expiration: up to a year. Note the date; the refresh stops when the token expires.
-2. **Create the cron job** at cron-job.org (**Create cronjob**):
-   - URL: `https://api.github.com/repos/<user>/<repo>/actions/workflows/deploy.yml/dispatches`
-   - Schedule: custom. Minutes `0,15,30,45`; hours `8-18`; days of week Monday-Friday.
-     Time zone **America/New_York** (it handles daylight saving time).
-   - Advanced → Request method **POST**. Request body: `{"ref":"main"}`
-   - Advanced → Headers:
-     - `Accept`: `application/vnd.github+json`
-     - `Authorization`: `Bearer <your token>`
-     - `X-GitHub-Api-Version`: `2022-11-28`
-   - Notifications: turn on failure emails, so an expired token gets noticed.
-3. Use **Test run**. GitHub answers **204 No Content**, and a run appears in the Actions tab
-   with the trigger "workflow_dispatch".
-
-A run takes about 2-3 minutes. Runs that find no new data stop before deploying.
+GitHub turns off scheduled workflows after 60 days with no repository activity. If the data
+stops updating, re-enable the workflow from the Actions tab.
