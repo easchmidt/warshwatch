@@ -1,18 +1,21 @@
 name: Refresh data and deploy
 
 on:
+  # The main trigger is an outside scheduler (cron-job.org) that starts this
+  # workflow through the GitHub API every 15 minutes on weekdays, 8:00 AM-6:45 PM
+  # ET; see README. GitHub's own scheduler can start runs hours late, so it is
+  # only a backup here.
   schedule:
-    # Weekdays every 30 minutes, 12:05-22:35 UTC: 8:05 AM-6:35 PM ET in winter
-    # (7:05 AM-6:35 PM in summer; cron runs in UTC). Covers the 8:30 and 10:00
-    # releases, 2:00 PM FOMC decisions and the late-afternoon Fed releases.
-    # FRED usually posts a release within minutes, so new numbers reach the site
-    # within about 30 minutes (GitHub can start scheduled runs a few minutes late).
-    - cron: '5,35 12-22 * * 1-5'
-    # Once a day on weekends, so date-based labels stay current.
-    - cron: '15 14 * * 0,6'
+    - cron: '50 12-22 * * 1-5'   # hourly on weekdays, 12:50-22:50 UTC
+    - cron: '15 14 * * 0,6'      # once a day on weekends, so date labels stay current
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Deploy even if the data has not changed'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -59,13 +62,16 @@ jobs:
           FINVIZ_API_TOKEN: ${{ secrets.FINVIZ_API_TOKEN }}
         run: ./scripts/fetch-data.ps1
 
-      # Scheduled runs deploy only when the data changed (ignoring the
-      # "generated" timestamp). Pushes and manual runs always deploy.
+      # Scheduled and API-triggered runs deploy only when the data changed
+      # (ignoring the "generated" timestamp). Pushes, and manual runs with
+      # "force" ticked, always deploy.
       - name: Check for new data
         id: diff
         run: |
           strip() { sed -E 's/"generated":"[^"]*",?//' "$1"; }
-          if [ "${{ github.event_name }}" = "schedule" ] && cmp -s <(strip live-data.js) <(strip data/data.js); then
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.force }}" = "true" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          elif cmp -s <(strip live-data.js) <(strip data/data.js); then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "No new data since the last deploy; skipping."
           else
