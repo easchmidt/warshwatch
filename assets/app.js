@@ -239,6 +239,11 @@
       return 'updates daily' + (fomc ? ` · FOMC ${fmtDay(fomc.up[0])}` : '');
     }
     if (!scheduled.length) return '';
+    // A release dated today has (usually) already come out: say so, and point to the one after.
+    if (scheduled[0].up[0] === todayStr) {
+      const after = scheduled.map((r) => r.up.find((d) => d > todayStr)).filter(Boolean).sort()[0];
+      return 'released today' + (after ? ` · next ${fmtDay(after)}` : '');
+    }
     return `next data ${fmtDay(scheduled[0].up[0])}`;
   }
 
