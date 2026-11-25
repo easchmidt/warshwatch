@@ -260,7 +260,7 @@
     };
     host.innerHTML = `
       <h2>Upcoming data releases</h2>
-      <p class="section-note">When each source publishes next. Dates come from the FRED release calendar; the dashboard picks up new numbers in its next daily refresh.</p>
+      <p class="section-note">When each source publishes next. Dates come from the FRED release calendar; on weekdays the dashboard picks up new numbers within about 30 minutes of a release.</p>
       <div class="cal-wrap"><table class="cal">
         <thead><tr><th>Next release</th><th>Release</th><th>Updates</th><th>After that</th></tr></thead>
         <tbody>${rows.map(rowHtml).join('')}</tbody>
@@ -558,7 +558,7 @@
     }
     renderTiles();
     const gen = new Date(DATA.generated);
-    document.getElementById('updated').textContent = `Data refreshed ${gen.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}`;
+    document.getElementById('updated').textContent = `Data updated ${gen.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}`;
     const nc = document.getElementById('n-components'); if (nc && DATA.breadth) nc.textContent = DATA.breadth.components;
     redrawAll();
     let raf = 0;

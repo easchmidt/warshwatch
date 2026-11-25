@@ -2,7 +2,14 @@ name: Refresh data and deploy
 
 on:
   schedule:
-    - cron: '15 14 * * *'   # daily, after the 8:30 ET data releases
+    # Weekdays every 30 minutes, 12:05-22:35 UTC: 8:05 AM-6:35 PM ET in winter
+    # (7:05 AM-6:35 PM in summer; cron runs in UTC). Covers the 8:30 and 10:00
+    # releases, 2:00 PM FOMC decisions and the late-afternoon Fed releases.
+    # FRED usually posts a release within minutes, so new numbers reach the site
+    # within about 30 minutes (GitHub can start scheduled runs a few minutes late).
+    - cron: '5,35 12-22 * * 1-5'
+    # Once a day on weekends, so date-based labels stay current.
+    - cron: '15 14 * * 0,6'
   push:
     branches: [main]
   workflow_dispatch:
@@ -19,12 +26,30 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
     steps:
       - uses: actions/checkout@v4
 
-      # If the refresh fails, the committed data/data.js is deployed instead (the
-      # script only writes the file after every download succeeds). Failures show
-      # up as annotations on the run.
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      # Start from the data the live site is serving, not the (older) copy in the
+      # repo. If a download below fails, the script leaves this file in place and
+      # its fallbacks (release calendar, readings) build on it, so a failed run
+      # never rolls the site back.
+      - name: Start from live data
+        run: |
+          if curl -fsSL --max-time 60 "${{ steps.pages.outputs.base_url }}/data/data.js" -o live-data.js \
+             && grep -q 'window.WARSH_DATA' live-data.js; then
+            cp live-data.js data/data.js
+          else
+            echo "::warning title=live-data::Could not read the live data.js; starting from the committed copy."
+            cp data/data.js live-data.js
+          fi
+
+      # The script only writes data.js after every required download succeeds.
+      # Failures show up as annotations on the run.
       - name: Fetch latest data
         shell: pwsh
         continue-on-error: true
@@ -34,18 +59,33 @@ jobs:
           FINVIZ_API_TOKEN: ${{ secrets.FINVIZ_API_TOKEN }}
         run: ./scripts/fetch-data.ps1
 
+      # Scheduled runs deploy only when the data changed (ignoring the
+      # "generated" timestamp). Pushes and manual runs always deploy.
+      - name: Check for new data
+        id: diff
+        run: |
+          strip() { sed -E 's/"generated":"[^"]*",?//' "$1"; }
+          if [ "${{ github.event_name }}" = "schedule" ] && cmp -s <(strip live-data.js) <(strip data/data.js); then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No new data since the last deploy; skipping."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Assemble site
+        if: steps.diff.outputs.changed == 'true'
         run: |
           mkdir -p _site
           cp -r index.html assets data _site/
 
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - if: steps.diff.outputs.changed == 'true'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: _site
 
   deploy:
     needs: build
+    if: needs.build.outputs.changed == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
