@@ -14,6 +14,7 @@ dependencies. A free FRED API key (see below) enables the daily refresh on GitHu
   - Cleveland Fed median PCE
   - BEA's detailed PCE price table, used to compute the "breadth" metric: the share of PCE components with inflation above 3%
   - FRED's release calendar, for the "Upcoming data releases" table and each chart's next-update date (needs the API key; a local run without one keeps the calendar already in `data.js`)
+  - The Finviz Elite economic calendar export, for the "Recent high-impact readings" table (actual, expected and prior values). Needs a Finviz Elite API token; without one the readings already in `data.js` are kept, and the table stays hidden if there are none
 - `.github/workflows/deploy.yml` runs that script every day at 14:15 UTC, on every push to `main`
   and on demand. It then publishes the site to GitHub Pages. If a download fails, the run
   fails and the previous version of the site stays live.
@@ -34,7 +35,9 @@ powershell -ExecutionPolicy Bypass -File scripts/serve.ps1        # http://local
    **Settings → Secrets and variables → Actions → New repository secret**, named `FRED_API_KEY`.
    FRED's public CSV endpoint stalls requests from GitHub's servers, so the daily refresh needs the key.
    Without it, the workflow redeploys the committed `data/data.js` unchanged.
-5. The workflow runs on the push. The site appears at `https://<user>.github.io/<repo>/`.
+5. Optional: for the high-impact readings table, add your Finviz Elite API token (shown at
+   https://elite.finviz.com/apis/calendar/economic) as a second secret named `FINVIZ_API_TOKEN`.
+6. The workflow runs on the push. The site appears at `https://<user>.github.io/<repo>/`.
 
 GitHub turns off scheduled workflows after 60 days with no repository activity. If the data
 stops updating, re-enable the workflow from the Actions tab.

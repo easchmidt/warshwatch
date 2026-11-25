@@ -276,6 +276,59 @@
     });
   }
 
+  // ------------------------------------------------------------------ recent high-impact readings
+  // DATA.readings: [{ event, date, time (ET), period, actual, expected, prior }], newest
+  // first, from the Finviz economic calendar. Values are display strings ("0.2%", "23.75K").
+  function parseReading(s) {
+    const m = String(s || '').trim().replace(/,/g, '').match(/^(-?\d+(?:\.\d+)?)\s*(%|K|M|B|T)?$/i);
+    return m ? { v: +m[1], unit: (m[2] || '').toUpperCase() } : null;
+  }
+  // Actual vs. consensus, in words: neutral, since "above" is good news for some releases and bad for others.
+  function surprise(r) {
+    const a = parseReading(r.actual), e = parseReading(r.expected);
+    if (!a || !e || a.unit !== e.unit) return { label: '–', cls: '' };
+    const d = a.v - e.v;
+    if (Math.abs(d) < 1e-9) return { label: 'In line', cls: 'rd-inline' };
+    return d > 0 ? { label: '▲ Above', cls: 'rd-above' } : { label: '▼ Below', cls: 'rd-below' };
+  }
+
+  function renderReadings() {
+    const host = document.getElementById('readings');
+    const rows = DATA.readings || [];
+    if (!rows.length) { host.hidden = true; return; }
+    const SHOW = 8;
+    const fmtTime = (t) => {
+      const [h, mi] = String(t || '').split(':').map(Number);
+      if (!isFinite(h)) return '';
+      return `${((h + 11) % 12) + 1}:${String(mi || 0).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'} ET`;
+    };
+    const rowHtml = (r, i) => {
+      const s = surprise(r);
+      return `<tr${i >= SHOW ? ' class="rd-more" hidden' : ''}>
+        <td class="cal-date"><span class="cal-day">${fmtDay(r.date)}</span><span class="cal-in">${fmtTime(r.time)}</span></td>
+        <td><span class="rd-event">${esc(r.event)}</span>${r.period ? `<span class="rd-period">${esc(r.period)}</span>` : ''}</td>
+        <td class="num rd-actual">${esc(r.actual)}</td>
+        <td class="num">${r.expected ? esc(r.expected) : '–'}</td>
+        <td class="num">${r.prior ? esc(r.prior) : '–'}</td>
+        <td class="rd-vs ${s.cls}">${s.label}</td></tr>`;
+    };
+    host.innerHTML = `
+      <h2>Recent high-impact readings</h2>
+      <p class="section-note">The latest U.S. releases rated high impact, with the consensus forecast and the prior reading. Source: Finviz economic calendar.</p>
+      <div class="cal-wrap"><table class="cal rd">
+        <thead><tr><th>Released</th><th>Release</th><th class="num">Actual</th><th class="num">Expected</th><th class="num">Prior</th><th>vs. expected</th></tr></thead>
+        <tbody>${rows.map(rowHtml).join('')}</tbody>
+      </table></div>
+      ${rows.length > SHOW ? `<button type="button" class="ghost cal-toggle" aria-expanded="false">Show all ${rows.length} readings</button>` : ''}`;
+    const btn = host.querySelector('.cal-toggle');
+    if (btn) btn.addEventListener('click', () => {
+      const open = btn.getAttribute('aria-expanded') !== 'true';
+      host.querySelectorAll('.rd-more').forEach((tr) => { tr.hidden = !open; });
+      btn.setAttribute('aria-expanded', String(open));
+      btn.textContent = open ? 'Show fewer' : `Show all ${rows.length} readings`;
+    });
+  }
+
   // ------------------------------------------------------------------ chart
   const tooltip = document.getElementById('tooltip');
   const SERIES_VARS = ['--series-1', '--series-2', '--series-3'];
@@ -493,6 +546,7 @@
       p.ids = panelIds(p);
       p.anchor = 'panel-' + p.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     });
+    renderReadings();
     renderCalendar();
     for (const sec of SECTIONS) {
       const s = document.createElement('section');

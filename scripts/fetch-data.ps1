@@ -31,7 +31,7 @@ function Save-Url([string]$Url, [string]$Path) {
   if ($LASTEXITCODE -ne 0 -or $code -ne '200') {
     $snippet = ''
     if (Test-Path $Path) { $snippet = ([IO.File]::ReadAllText($Path) -replace '\s+', ' '); if ($snippet.Length -gt 200) { $snippet = $snippet.Substring(0, 200) } }
-    $safeUrl = $Url -replace 'api_key=[^&]+', 'api_key=***'   # never print the FRED key
+    $safeUrl = $Url -replace '(api_key|auth)=[^&]+', '$1=***'   # never print the FRED key or Finviz token
     throw "Download failed: HTTP $code (curl exit $LASTEXITCODE) for $safeUrl :: $snippet"
   }
 }
@@ -252,12 +252,19 @@ if ($FredKey) {
     if ($env:GITHUB_ACTIONS) { Write-Host "::warning title=release-calendar::$msg" } else { Write-Warning "Release calendar skipped: $msg" }
   }
 }
-if ($null -eq $calendar -and (Test-Path $OutFile)) {
-  $prev = [IO.File]::ReadAllText((Resolve-Path $OutFile).Path)
-  if ($prev -match 'window\.WARSH_DATA = (\{.*\});') {
-    $old = $Matches[1] | ConvertFrom-Json
-    if ($old.calendar) { $calendar = $old.calendar; Write-Host 'Release calendar: kept from previous data.js' }
+# The data.js being replaced, parsed once: sections that need a key or can fail
+# fall back to what it already holds.
+$script:prevData = $null
+function Get-PrevData {
+  if ($null -eq $script:prevData -and (Test-Path $OutFile)) {
+    $txt = [IO.File]::ReadAllText((Resolve-Path $OutFile).Path)
+    if ($txt -match 'window\.WARSH_DATA = (\{.*\});') { $script:prevData = $Matches[1] | ConvertFrom-Json }
   }
+  return $script:prevData
+}
+if ($null -eq $calendar) {
+  $old = Get-PrevData
+  if ($old -and $old.calendar) { $calendar = $old.calendar; Write-Host 'Release calendar: kept from previous data.js' }
 }
 
 # FOMC decision dates come from the Fed's meeting calendar. FRED files its
@@ -304,11 +311,47 @@ try {
 }
 $calendar = $null; if ($rest.Count) { $calendar = $rest }   # no if-expression: it would unroll a 1-item list
 
+# ---------------------------------------------------------------- recent high-impact readings
+# Finviz Elite economic calendar export, a CSV with columns
+# Event,Date,Time,Impact,For,Actual,Expected,Prior (Impact 3 = high; times ET).
+# Needs FINVIZ_API_TOKEN (a GitHub Actions secret). Without it, or if Finviz
+# fails, the readings already in data.js are kept.
+$readings = $null
+$FinvizToken = $env:FINVIZ_API_TOKEN
+if ($FinvizToken) {
+  Write-Host 'Finviz economic calendar'
+  try {
+    $from = (Get-Date).ToUniversalTime().AddDays(-35).ToString('yyyy-MM-dd')
+    $csv = Get-Text "https://elite.finviz.com/export/calendar/economic?dateFrom=$from&dateTo=$today&auth=$FinvizToken"
+    if (-not $csv.TrimStart([char]0xFEFF).StartsWith('Event,')) { throw 'Unexpected Finviz response (not the calendar CSV)' }
+    $list = New-Object System.Collections.Generic.List[object]
+    foreach ($row in ($csv.TrimStart([char]0xFEFF) | ConvertFrom-Csv)) {
+      # High impact only, and only releases with a number (skips speeches).
+      if ([string]$row.Impact -ne '3' -or -not $row.Actual) { continue }
+      $list.Add([pscustomobject][ordered]@{
+          event = [string]$row.Event; date = [string]$row.Date; time = [string]$row.Time; period = [string]$row.For
+          actual = [string]$row.Actual; expected = [string]$row.Expected; prior = [string]$row.Prior })
+    }
+    $readings = New-Object System.Collections.Generic.List[object]   # newest first
+    foreach ($r in ($list | Sort-Object -Property @{ Expression = { $_.date + ' ' + $_.time } } -Descending)) { $readings.Add($r) }
+    Write-Host "High-impact readings: $($readings.Count)"
+  } catch {
+    $readings = $null
+    $msg = $_.Exception.Message
+    if ($env:GITHUB_ACTIONS) { Write-Host "::warning title=finviz-readings::$msg" } else { Write-Warning "Finviz readings skipped: $msg" }
+  }
+}
+if ($null -eq $readings) {
+  $old = Get-PrevData
+  if ($old -and $old.readings) { $readings = $old.readings; Write-Host 'High-impact readings: kept from previous data.js' }
+}
+
 # ---------------------------------------------------------------- write
 $payload = [ordered]@{
   generated = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
   breadth   = [ordered]@{ components = $leaves.Count; preAvg12m = $preAvg }
   calendar  = $calendar
+  readings  = $readings
   series    = $series
 }
 $json = $payload | ConvertTo-Json -Depth 6 -Compress
