@@ -40,7 +40,16 @@ trap {
   if ($env:GITHUB_ACTIONS) { Write-Host ("::error title=fetch-data::" + (($_ | Out-String) -replace '\r?\n', ' ')) }
   break
 }
+# FRED's API allows 120 requests a minute; a run makes about 100, so keep them
+# at least 0.6 s apart.
+$script:fredClock = [Diagnostics.Stopwatch]::StartNew()
+$script:fredLast = -1000
 function Get-Text([string]$Url) {
+  if ($Url -like 'https://api.stlouisfed.org/*') {
+    $wait = 600 - ($script:fredClock.ElapsedMilliseconds - $script:fredLast)
+    if ($wait -gt 0) { Start-Sleep -Milliseconds $wait }
+    $script:fredLast = $script:fredClock.ElapsedMilliseconds
+  }
   $f = [IO.Path]::GetTempFileName()
   try { Save-Url $Url $f; return [IO.File]::ReadAllText($f) } finally { Remove-Item $f -ErrorAction SilentlyContinue }
 }
@@ -98,6 +107,7 @@ function Get-FredObs([string]$id) {
 }
 
 $series = [ordered]@{}
+$updated = [ordered]@{}   # series id -> 'yyyy-MM-dd' its latest reading was published
 Write-Host ('FRED source: ' + $(if ($FredKey) { 'API' } else { 'graph CSV' }))
 foreach ($id in $fred.Keys) {
   Write-Host "FRED $id"
@@ -109,6 +119,18 @@ foreach ($id in $fred.Keys) {
   foreach ($o in $obs) { if ($o[0] -ge $Start) { $clean.Add([object[]]@([string]$o[0], [double]$o[1])) } }
   if ($clean.Count -eq 0) { throw "No observations for $id" }
   $series[$id] = $clean
+  # When FRED last updated the series, i.e. the date its latest reading was
+  # published (in Central time, e.g. "2026-11-25 07:52:13-06"). Skipped for
+  # daily market series, where a publication date isn't meaningful.
+  if ($FredKey -and $fred[$id] -ne 'D') {
+    try {
+      $meta = ((Get-Text "https://api.stlouisfed.org/fred/series?series_id=$id&file_type=json&api_key=$FredKey") | ConvertFrom-Json).seriess
+      $lu = [string](@($meta)[0].last_updated)
+      if ($lu -match '^\d{4}-\d{2}-\d{2}') { $updated[$id] = $Matches[0] }
+    } catch {
+      if ($env:GITHUB_ACTIONS) { Write-Host "::warning title=release-date::$id $($_.Exception.Message)" } else { Write-Warning "Release date skipped for ${id}: $($_.Exception.Message)" }
+    }
+  }
 }
 
 # ---------------------------------------------------------------- Cleveland Fed median PCE
@@ -341,6 +363,10 @@ if ($FinvizToken) {
     if ($env:GITHUB_ACTIONS) { Write-Host "::warning title=finviz-readings::$msg" } else { Write-Warning "Finviz readings skipped: $msg" }
   }
 }
+if ($updated.Count -eq 0) {   # no API key: keep the publication dates already in data.js
+  $old = Get-PrevData
+  if ($old -and $old.updated) { $updated = $old.updated; Write-Host 'Release dates: kept from previous data.js' }
+}
 if ($null -eq $readings) {
   $old = Get-PrevData
   if ($old -and $old.readings) { $readings = $old.readings; Write-Host 'High-impact readings: kept from previous data.js' }
@@ -352,6 +378,7 @@ $payload = [ordered]@{
   breadth   = [ordered]@{ components = $leaves.Count; preAvg12m = $preAvg }
   calendar  = $calendar
   readings  = $readings
+  updated   = $updated
   series    = $series
 }
 $json = $payload | ConvertTo-Json -Depth 6 -Compress

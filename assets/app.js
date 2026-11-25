@@ -45,6 +45,15 @@
   }
   const last = (arr) => arr[arr.length - 1];
 
+  // Date a series' latest reading was published (DATA.updated: FRED's last-updated date,
+  // monthly/quarterly/weekly series only). The BEA breadth measure comes out with the PCE report.
+  const PUBLISHED_WITH = { BREADTH_12M: 'PCEPI', BREADTH_6M: 'PCEPI' };
+  const publishedOn = (id) => (id && (DATA.updated || {})[PUBLISHED_WITH[id] || id]) || null;
+  const releasedNote = (id) => {
+    const d = publishedOn(id);
+    return d ? `, released ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+d.slice(5, 7) - 1]} ${+d.slice(8, 10)}` : '';
+  };
+
   // ------------------------------------------------------------------ formatting
   function fmtDate(d, freq) {
     const y = d.slice(0, 4), m = +d.slice(5, 7);
@@ -199,10 +208,10 @@
     const br = last(raw('BREADTH_12M')), ur = last(raw('UNRATE'));
     const tiles = [
       { label: 'Fed funds target range', value: lo && hi ? `${lo.v.toFixed(2)}–${hi.v.toFixed(2)}%` : '–', sub: hi ? `As of ${fmtDate(hi.d, 'D')}` : '' },
-      { label: 'PCE inflation, 12-month', value: fmtVal(pce && pce.v, '%'), sub: pce ? `${fmtDate(pce.d, 'M')} · Jackson Hole: 3.7% · Target 2%` : '' },
-      { label: 'Core PCE, 12-month', value: fmtVal(core && core.v, '%'), sub: core ? `${fmtDate(core.d, 'M')}` : '' },
-      { label: 'PCE components above 3%', value: fmtVal(br && br.v, '%', 0), sub: br ? `${fmtDate(br.d, 'M')} · Jackson Hole: 54%` : '' },
-      { label: 'Unemployment rate', value: fmtVal(ur && ur.v, '%'), sub: ur ? `${fmtDate(ur.d, 'M')} · Jackson Hole: 4.1%` : '' },
+      { label: 'PCE inflation, 12-month', value: fmtVal(pce && pce.v, '%'), sub: pce ? `${fmtDate(pce.d, 'M')}${releasedNote('PCEPI')} · Jackson Hole: 3.7% · Target 2%` : '' },
+      { label: 'Core PCE, 12-month', value: fmtVal(core && core.v, '%'), sub: core ? `${fmtDate(core.d, 'M')}${releasedNote('PCEPILFE')}` : '' },
+      { label: 'PCE components above 3%', value: fmtVal(br && br.v, '%', 0), sub: br ? `${fmtDate(br.d, 'M')}${releasedNote('BREADTH_12M')} · Jackson Hole: 54%` : '' },
+      { label: 'Unemployment rate', value: fmtVal(ur && ur.v, '%'), sub: ur ? `${fmtDate(ur.d, 'M')}${releasedNote('UNRATE')} · Jackson Hole: 4.1%` : '' },
     ];
     el.innerHTML = tiles.map((t) => `<div class="tile"><p class="tile-label">${t.label}</p><p class="tile-value">${t.value}</p><p class="tile-sub">${t.sub}</p></div>`).join('');
   }
@@ -239,9 +248,14 @@
       return 'updates daily' + (fomc ? ` · FOMC ${fmtDay(fomc.up[0])}` : '');
     }
     if (!scheduled.length) return '';
-    // A release dated today has (usually) already come out: say so, and point to the one after.
+    // A release dated today: if the chart's latest reading was published today it's out
+    // (the subtitle already says "released <today>"), so point to the one after; if the
+    // reading is older, the new one hasn't reached FRED yet.
     if (scheduled[0].up[0] === todayStr) {
       const after = scheduled.map((r) => r.up.find((d) => d > todayStr)).filter(Boolean).sort()[0];
+      const pub = publishedOn(panel.headId);
+      if (pub && pub < todayStr) return 'new data due today';
+      if (pub) return after ? `next ${fmtDay(after)}` : '';
       return 'released today' + (after ? ` · next ${fmtDay(after)}` : '');
     }
     return `next data ${fmtDay(scheduled[0].up[0])}`;
@@ -373,7 +387,7 @@
     card.id = panel.anchor;
     card.innerHTML = `
       <div class="card-head"><h3>${panel.title}</h3><span class="card-latest">${head ? fmtVal(head.v, unit, digits) : '–'}</span></div>
-      <p class="card-sub">${panel.sub}${head ? ` · latest ${fmtDate(head.d, all[0].freq || panel.freq)}` : ''}${next ? ` · <span class="card-next">${next}</span>` : ''}</p>
+      <p class="card-sub">${panel.sub}${head ? ` · latest ${fmtDate(head.d, all[0].freq || panel.freq)}${releasedNote(panel.headId)}` : ''}${next ? ` · <span class="card-next">${next}</span>` : ''}</p>
       ${panel.speech ? `<p class="speech">${panel.speech}</p>` : ''}
       ${all.length > 1 ? `<ul class="legend">${all.map((s) => `<li><span class="swatch" style="background:var(${s.color})"></span>${s.label}</li>`).join('')}</ul>` : ''}
       <div class="chart" tabindex="0" role="img" aria-label="${panel.title} chart. Use left and right arrow keys to read values."></div>
@@ -549,6 +563,8 @@
     const host = document.getElementById('sections');
     SECTIONS.flatMap((s) => s.panels).forEach((p, i) => {
       p.ids = panelIds(p);
+      // The series the chart's headline value and "latest" date come from.
+      p.headId = (p.series[0].get.toString().match(/'([A-Z0-9_]+)'/) || [])[1];
       p.anchor = 'panel-' + p.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     });
     renderReadings();
